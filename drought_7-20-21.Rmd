@@ -1,0 +1,110 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+##Setup libraries##
+#specify the packages of interest
+packages = c("tidyverse","lubridate","RColorBrewer","ggpubr")
+
+#use this function to check if each package is on the local machine
+#if a package is installed, it will be loaded
+#if any are not, the missing package(s) will be installed and loaded
+package.check <- lapply(packages, FUN = function(x) {
+  if (!require(x, character.only = TRUE)) {
+    install.packages(x, dependencies = TRUE)
+    library(x, character.only = TRUE)
+  }
+})
+rm(package.check);rm(packages)
+
+# Disable scientific notation - only use scientific notation with decimals places to 7 and more
+options(scipen=999)
+
+```
+
+Read in dataset
+```{r}
+
+drought.dat <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-07-20/drought.csv')
+
+```
+
+
+Idea: time series of pct of pop in AZ living in each drought category
+
+Data processing
+```{r}
+
+#subset to Arizona
+drought_az <- drought.dat[drought.dat$state_abb == "AZ",]
+
+#convert start/end dates to date format
+drought_az$valid_start <- lubridate::as_datetime(drought_az$valid_start)
+
+drought_az$valid_end <- lubridate::as_datetime(drought_az$valid_end)
+
+#create "year" column to enable grouping by year
+drought_az$year <- lubridate::year(drought_az$valid_start)
+
+#summarize the average percent of the AZ population living in each drought category by year
+az_summary <- drought_az %>% 
+  group_by(year, drought_lvl) %>% 
+  summarize(mean_pop_pct = mean(pop_pct,na.rm = T))
+
+
+```
+
+Data visualization
+```{r}
+
+drought_cat <- c("None","D0","D1","D2","D3","D4")
+#convert drought categories to factors for easier implementation in ggplot
+az_summary$drought_lvl <- factor(az_summary$drought_lvl, levels = drought_cat)
+
+#Generate bar plots for 2001-2010 (break into two plots for easier visualization)
+p1 <- ggplot(data = az_summary[az_summary$year<2011,])+
+  geom_col(
+    mapping = aes(x = year, y = mean_pop_pct, fill = drought_lvl, color = drought_lvl),
+    position = "dodge"
+  )+
+  scale_fill_manual(name = "Drought Category",values = brewer.pal(length(az_summary$drought_lvl),"YlOrRd"))+
+  scale_color_manual(name = "Drought Category",values = rep("grey50",length(az_summary$drought_lvl)))+
+  theme_minimal()+
+  theme(axis.ticks.x = element_line(),axis.text = element_text(color = "black"))+
+  scale_x_continuous(breaks=seq(2001,2010,1))+
+  labs(title = "ARIZONA: Percent of population in each drought category by year", subtitle = "Data from the U.S. Drought Monitor - Figure produced for Tidy Tuesday 7-20-21") +
+  xlab("")+
+  ylab("% of population")
+
+
+#Plot for 2011-2021
+p2 <- ggplot(data = az_summary[az_summary$year>=2011,])+
+  geom_col(
+    mapping = aes(x = year, y = mean_pop_pct, fill = drought_lvl, color = drought_lvl),
+    position = "dodge"
+  )+
+  scale_fill_manual(name = "Drought Category",values = brewer.pal(length(az_summary$drought_lvl),"YlOrRd"))+
+  scale_color_manual(name = "Drought Category",values = rep("grey50",length(az_summary$drought_lvl)))+
+  theme_minimal()+
+  theme(axis.ticks.x = element_line(),axis.text = element_text(color = "black"))+
+  scale_x_continuous(breaks=seq(2011,2021,1))+
+  xlab("")+
+  ylab("% of population")
+
+#Combine each plot into one
+p <- ggpubr::ggarrange(p1,p2, ncol = 1, nrow = 2)
+
+#add a subtitle to the combined plot to reference the data
+p <- ggpubr::annotate_figure(p,
+  bottom = text_grob("The U.S. Drought Monitor is jointly produced by the National Drought Mitigation Center\nat the University of Nebraska-Lincoln,the United States Department of Agriculture,\nand the National Oceanic and Atmospheric Administration. Map courtesy of NDMC.", hjust = 1, x=1,face = "italic", size = 8)
+)
+
+#save figure
+ggsave(plot = p, "output/AZ_pct_pop_drought_by_year.png",dpi = 600, width = 12, height = 8, units = "in",limitsize = F)
+  
+```
+
